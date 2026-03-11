@@ -1,0 +1,114 @@
+############################
+# Python
+############################
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+############################
+# Virtual environments
+############################
+.venv/
+venv/
+env/
+ENV/
+
+############################
+# Jupyter
+############################
+.ipynb_checkpoints/
+
+############################
+# Build / packaging
+############################
+build/
+dist/
+*.egg-info/
+.eggs/
+
+############################
+# Logs
+############################
+*.log
+logs/
+log/
+
+############################
+# Dataset files
+############################
+*.pkl
+*.pickle
+*.pt
+*.npz
+*.npy
+*.csv.large
+
+############################
+# Training outputs
+############################
+results/
+runs/
+checkpoints/
+ckpt/
+tensorboard/
+tb_logs/
+
+############################
+# Model files
+############################
+*.ckpt
+*.pth
+*.pt
+*.bin
+*.model
+
+############################
+# Temporary files
+############################
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+
+############################
+# JSON experiment outputs
+############################
+*.json
+
+############################
+# IDE files
+############################
+
+# PyCharm
+.idea/
+*.iml
+
+# VSCode
+.vscode/
+
+############################
+# OS files
+############################
+.DS_Store
+Thumbs.db
+
+############################
+# Coverage / testing
+############################
+.coverage
+coverage/
+htmlcov/
+.pytest_cache/
+
+############################
+# Tensorboard
+############################
+events.out.tfevents*
+
+############################
+# Large graph datasets
+############################
+data/
+datasets/
