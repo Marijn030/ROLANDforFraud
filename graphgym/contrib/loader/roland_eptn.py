@@ -1,5 +1,3 @@
-# graphgym/contrib/loader/roland_eptn.py
-
 import os
 import pickle
 import math
@@ -14,7 +12,7 @@ def load_eptn_pkl(path):
 
     if os.path.exists(cache_path):
         print(f"[EPTN] Loading cached processed graph from {cache_path}")
-        return torch.load(cache_path)
+        return torch.load(cache_path, weights_only=False)
 
     print(f"[EPTN] Loading raw pickle from {path}")
     with open(path, "rb") as f:
@@ -24,12 +22,12 @@ def load_eptn_pkl(path):
     num_edges = G.number_of_edges()
     print(f"[EPTN] Raw graph loaded: {num_nodes} nodes, {num_edges} edges")
 
-    print("[EPTN] Building node index map...")
     node_list = list(G.nodes())
     node_map = {n: i for i, n in enumerate(node_list)}
     N = len(node_list)
+    E = num_edges
 
-    print("[EPTN] Initializing node labels and node statistics...")
+    print("[EPTN] Initializing tensors...")
     node_label = torch.zeros(N, dtype=torch.long)
 
     in_deg = torch.zeros(N, dtype=torch.float32)
@@ -38,23 +36,24 @@ def load_eptn_pkl(path):
     in_amt_sum = torch.zeros(N, dtype=torch.float32)
     out_amt_sum = torch.zeros(N, dtype=torch.float32)
 
+    in_amt_max = torch.zeros(N, dtype=torch.float32)
+    out_amt_max = torch.zeros(N, dtype=torch.float32)
+
     in_tx_count = torch.zeros(N, dtype=torch.float32)
     out_tx_count = torch.zeros(N, dtype=torch.float32)
 
     first_ts = torch.full((N,), float("inf"), dtype=torch.float32)
     last_ts = torch.zeros(N, dtype=torch.float32)
 
+    edge_index = torch.empty((2, E), dtype=torch.long)
+    edge_feature = torch.empty((E, 2), dtype=torch.float32)  # [log_amount, norm_time]
+    edge_time = torch.empty(E, dtype=torch.float32)
+
     print("[EPTN] Reading node labels...")
     for idx, n in enumerate(node_list):
         node_label[node_map[n]] = int(G.nodes[n].get("isp", 0))
         if idx % 500_000 == 0 and idx > 0:
             print(f"[EPTN] Processed {idx}/{N} nodes")
-
-    print("[EPTN] Preallocating edge tensors...")
-    E = num_edges
-    edge_index = torch.empty((2, E), dtype=torch.long)
-    edge_feature = torch.empty((E, 2), dtype=torch.float32)  # [log_amount, norm_timestamp]
-    edge_time = torch.empty(E, dtype=torch.float32)
 
     print("[EPTN] Processing edges...")
     for idx, (u, v, k, data) in enumerate(G.edges(keys=True, data=True)):
@@ -67,7 +66,8 @@ def load_eptn_pkl(path):
         edge_index[0, idx] = u_idx
         edge_index[1, idx] = v_idx
 
-        edge_feature[idx, 0] = math.log1p(max(amount, 0.0))
+        log_amount = math.log1p(max(amount, 0.0))
+        edge_feature[idx, 0] = log_amount
         edge_feature[idx, 1] = timestamp
         edge_time[idx] = timestamp
 
@@ -79,6 +79,11 @@ def load_eptn_pkl(path):
 
         out_amt_sum[u_idx] += amount
         in_amt_sum[v_idx] += amount
+
+        if amount > out_amt_max[u_idx]:
+            out_amt_max[u_idx] = amount
+        if amount > in_amt_max[v_idx]:
+            in_amt_max[v_idx] = amount
 
         if timestamp > 0:
             if timestamp < first_ts[u_idx]:
@@ -93,29 +98,36 @@ def load_eptn_pkl(path):
         if idx % 1_000_000 == 0 and idx > 0:
             print(f"[EPTN] Processed {idx}/{E} edges")
 
-    print("[EPTN] Finalizing node features...")
+    print("[EPTN] Building node features...")
     first_ts[first_ts == float("inf")] = 0.0
+    active_span = torch.clamp(last_ts - first_ts, min=0.0)
 
     avg_in_amt = in_amt_sum / torch.clamp(in_tx_count, min=1.0)
     avg_out_amt = out_amt_sum / torch.clamp(out_tx_count, min=1.0)
-    active_span = torch.clamp(last_ts - first_ts, min=0.0)
+
+    deg_ratio = out_deg / torch.clamp(in_deg + 1.0, min=1.0)
+    amt_ratio = out_amt_sum / torch.clamp(in_amt_sum + 1.0, min=1.0)
 
     node_feature = torch.stack(
         [
             torch.log1p(in_deg),
             torch.log1p(out_deg),
+            torch.log1p(in_tx_count),
+            torch.log1p(out_tx_count),
             torch.log1p(in_amt_sum),
             torch.log1p(out_amt_sum),
             torch.log1p(avg_in_amt),
             torch.log1p(avg_out_amt),
-            torch.log1p(in_tx_count),
-            torch.log1p(out_tx_count),
+            torch.log1p(in_amt_max),
+            torch.log1p(out_amt_max),
             torch.log1p(active_span),
+            torch.log1p(deg_ratio),
+            torch.log1p(amt_ratio),
         ],
         dim=1,
     )
 
-    print("[EPTN] Normalizing timestamp edge feature...")
+    print("[EPTN] Normalizing timestamp feature...")
     if edge_time.numel() > 0:
         t_min = edge_time.min()
         t_max = edge_time.max()
