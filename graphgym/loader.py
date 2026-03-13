@@ -2,6 +2,7 @@ import networkx as nx
 import time
 import logging
 import pickle
+from graphgym.contrib.loader.roland_eptn import load_eptn_dataset
 
 from deepsnap.dataset import GraphDataset
 import torch
@@ -123,6 +124,12 @@ def load_dataset():
         # Note this is only used for custom splits from OGB
         split_idx = dataset.get_idx_split()
         return graphs, split_idx
+    elif cfg.dataset.format == 'eptn':
+        graphs = load_eptn_dataset(
+            cfg.dataset.format,
+            cfg.dataset.name,
+            cfg.dataset.dir
+        )
     else:
         raise ValueError('Unknown data format: {}'.format(cfg.dataset.format))
     return graphs
