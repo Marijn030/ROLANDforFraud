@@ -27,6 +27,9 @@ train:
   eval_period: 5
   ckpt_period: 10
   mode: standard
+  auto_resume: False
+  early_stopping: True
+  patience: 16
 
 model:
   type: gnn
@@ -50,4 +53,4 @@ gnn:
 optim:
   optimizer: adam
   base_lr: 0.001
-  max_epoch: 10
+  max_epoch: 100

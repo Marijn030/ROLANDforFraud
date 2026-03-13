@@ -13,7 +13,9 @@ def compute_loss(pred, true):
     :param true: label
     :return: loss, normalized prediction score
     '''
-    bce_loss = nn.BCEWithLogitsLoss(size_average=cfg.model.size_average)
+    # p = 0.00039, n = 1 - 0.00039 = 0.99961, pos_weight = n/p = 0.99961 / 0.00039 = 2563
+    pos_weight = torch.tensor([2563.0], device=pred.device)
+    bce_loss = nn.BCEWithLogitsLoss(pos_weight=pos_weight, size_average=cfg.model.size_average)
     mse_loss = nn.MSELoss(size_average=cfg.model.size_average)
 
     # default manipulation for pred and true
