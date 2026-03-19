@@ -41,7 +41,7 @@ gnn:
 
 gt:
   head: default
-  dim_hidden: 32
+  dim_hidden: 16
   layers: 2
   layers_pre_gt: 0
   layer_type: SparseNodeTransformer

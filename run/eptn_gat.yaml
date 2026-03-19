@@ -40,7 +40,7 @@ gnn:
   layers_pre_mp: 1
   layers_mp: 2
   layers_post_mp: 2
-  dim_inner: 32
+  dim_inner: 16
   layer_type: gatconv
   stage_type: stack
   batchnorm: True
