@@ -6,11 +6,27 @@ from torch_geometric.data import HeteroData
 import graphgym.register as register
 from graphgym.config import cfg
 from graphgym.register import register_network
-from graphgym.models.layer import BatchNorm1dNode
 
 from graphgym.contrib.layer.gt_layer import GTLayer
 from graphgym.contrib.network.utils import GTPreNN
-from torch_geometric.nn import (Sequential, Linear, HeteroConv, GraphConv, SAGEConv, HGTConv, GATConv)
+
+from graphgym.models.head import head_dict
+
+def get_activation(name):
+    name = name.lower()
+    if name == 'relu':
+        return nn.ReLU()
+    if name == 'prelu':
+        return nn.PReLU()
+    if name == 'gelu':
+        return nn.GELU()
+    if name == 'elu':
+        return nn.ELU()
+    if name == 'leakyrelu':
+        return nn.LeakyReLU()
+    if name in register.act_dict:
+        return register.act_dict[name]
+    raise KeyError(f'Unknown activation: {name}')
 
 class FeatureEncoder(torch.nn.Module):
     """
@@ -19,34 +35,14 @@ class FeatureEncoder(torch.nn.Module):
     Args:
         dim_in (int): Input feature dimension
     """
-    def __init__(self, dim_in, dataset):
+    def __init__(self, dim_in, is_hetero=False):
         super(FeatureEncoder, self).__init__()
-        self.is_hetero = isinstance(dataset[0], HeteroData)
+        self.is_hetero = is_hetero
         self.dim_in = dim_in
         if cfg.dataset.node_encoder:
-            # Encode integer node features via nn.Embeddings
-            NodeEncoder = register.node_encoder_dict[
-                cfg.dataset.node_encoder_name]
-            self.node_encoder = NodeEncoder(cfg.gt.dim_hidden, dataset)
-            if cfg.dataset.node_encoder_bn:
-                self.node_encoder_bn = BatchNorm1dNode(cfg.gt.dim_hidden)
-            # Update dim_in to reflect the new dimension of the node features
-            if self.is_hetero:
-                self.dim_in = {node_type: cfg.gt.dim_hidden for node_type in dim_in}
-            else:
-                self.dim_in = cfg.gt.dim_hidden
+            raise NotImplementedError("node_encoder requires dataset access in this integration.")
         if cfg.dataset.edge_encoder:
-            # Hard-limit max edge dim for PNA.
-            if 'PNA' in cfg.gt.layer_type:
-                cfg.gnn.dim_edge = min(128, cfg.gt.dim_hidden)
-            else:
-                cfg.gnn.dim_edge = cfg.gt.dim_hidden
-            # Encode integer edge features via nn.Embeddings
-            EdgeEncoder = register.edge_encoder_dict[
-                cfg.dataset.edge_encoder_name]
-            self.edge_encoder = EdgeEncoder(cfg.gnn.dim_edge, dataset)
-            if cfg.dataset.edge_encoder_bn:
-                self.edge_encoder_bn = BatchNorm1dNode(cfg.gnn.dim_edge)
+            raise NotImplementedError("edge_encoder requires dataset access in this integration.")
 
     def forward(self, batch):
         for module in self.children():
@@ -55,24 +51,27 @@ class FeatureEncoder(torch.nn.Module):
 
 
 class GTModel(torch.nn.Module):
-    def __init__(self, dim_in, dim_out, dataset):
+    def __init__(self, dim_in, dim_out):
         super().__init__()
-        self.is_hetero  = isinstance(dataset[0], HeteroData)
-        if self.is_hetero:
-            self.metadata   = dataset[0].metadata()
-        else:
-            self.metadata = [("node_type",), (("node_type", "edge_type", "node_type"), )]
+        self.is_hetero  = False
+        self.metadata = [("node_type",), (("node_type", "edge_type", "node_type"), )]
         self.dim_h      = cfg.gt.dim_hidden
         self.input_drop = nn.Dropout(cfg.gt.input_dropout)
-        self.activation = register.act_dict[cfg.gt.act]
+        self.activation = get_activation(cfg.gt.act)
         self.batch_norm = cfg.gt.batch_norm
         self.layer_norm = cfg.gt.layer_norm
         self.l2_norm    = cfg.gt.l2_norm
-        GNNHead         = register.head_dict[cfg.gt.head]
+        GNNHead         = head_dict[cfg.gt.head]
 
-        self.encoder = FeatureEncoder(dim_in, dataset)
+        self.encoder = FeatureEncoder(dim_in, is_hetero=self.is_hetero)
         self.dim_in = self.encoder.dim_in
 
+        if not self.is_hetero:
+            self.input_proj = nn.Linear(self.dim_in, self.dim_h)
+            self.edge_input_proj = nn.Linear(cfg.dataset.edge_dim, self.dim_h)
+        else:
+            self.input_proj = None
+            self.edge_input_proj = None
 
         if cfg.gt.layers_pre_gt > 0:
             if not self.is_hetero:
@@ -130,7 +129,7 @@ class GTModel(torch.nn.Module):
             else:
                 dim_h_total = self.dim_h
 
-        self.post_gt = GNNHead(dim_h_total, dim_out, dataset)
+        self.post_gt = GNNHead(dim_h_total, dim_out)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -141,10 +140,19 @@ class GTModel(torch.nn.Module):
     def forward(self, batch):
         batch = self.encoder(batch)
         if isinstance(batch, HeteroData):
+            node_types = batch.node_types
+            edge_types = batch.edge_types
             h_dict, edge_index_dict = batch.collect('x'), batch.collect('edge_index')
         else:
-            h_dict = {self.metadata[0][0]: batch.x}
+            node_types = [self.metadata[0][0]]
+            edge_types = [self.metadata[1][0]]
+            h_dict = {self.metadata[0][0]: batch.node_feature}
             edge_index_dict = {self.metadata[1][0]: batch.edge_index}
+
+        if not self.is_hetero:
+            h_dict[self.metadata[0][0]] = self.input_proj(h_dict[self.metadata[0][0]])
+            if hasattr(batch, 'edge_feature') and batch.edge_feature is not None:
+                batch.edge_feature = self.edge_input_proj(batch.edge_feature)
 
         h_dict = {
             node_type: self.input_drop(h_dict[node_type]) for node_type in h_dict
@@ -176,15 +184,15 @@ class GTModel(torch.nn.Module):
                 if src_type == dst_type:
                     edge_index_dict[edge_type] = torch.cat((edge_index_dict[edge_type], torch.cat((torch.cat(cols, dim=-1), torch.cat(rows, dim=-1)))), dim=-1)
 
-            for node_type in batch.node_types:
+            for node_type in node_types:
                 batch[node_type].num_nodes += self.num_virtual_nodes
 
         # Write back for conv layer
         if isinstance(batch, HeteroData):
-            for node_type in batch.node_types:
+            for node_type in node_types:
                 batch[node_type].x = h_dict[node_type]
         else:
-            batch.x = h_dict[self.metadata[0][0]]
+            batch.node_feature = h_dict[self.metadata[0][0]]
         for i in range(cfg.gt.layers):
             batch = self.convs[i](batch)
             # batch = self.convs[i](batch)
@@ -201,18 +209,18 @@ class GTModel(torch.nn.Module):
 
         if self.num_virtual_nodes > 0:
             # Remove the virtual nodes
-            for node_type in batch.node_types:
+            for node_type in node_types:
                 batch[node_type].x = batch[node_type].x[:num_nodes_dict[node_type], :]
                 batch[node_type].num_nodes -= self.num_virtual_nodes
 
         # Jumping knowledge.
         if cfg.gt.jumping_knowledge:
-            for node_type in batch.node_types:
+            for node_type in node_types:
                 batch[node_type].x = torch.cat(interm[node_type], dim=1)
 
         # Output L2 norm
         if cfg.gt.l2_norm:
-            for node_type in batch.node_types:
+            for node_type in node_types:
                 batch[node_type].x = F.normalize(batch[node_type].x, p=2, dim=-1) 
 
         return self.post_gt(batch)

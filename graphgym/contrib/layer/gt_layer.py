@@ -11,13 +11,28 @@ from torch_geometric.data import HeteroData
 from torch_geometric.nn.inits import zeros
 from torch_geometric.nn import Linear
 
+def get_activation(name):
+    name = name.lower()
+    if name == 'relu':
+        return nn.ReLU()
+    if name == 'prelu':
+        return nn.PReLU()
+    if name == 'gelu':
+        return nn.GELU()
+    if name == 'elu':
+        return nn.ELU()
+    if name == 'leakyrelu':
+        return nn.LeakyReLU()
+    if name in register.act_dict:
+        return register.act_dict[name]
+    raise KeyError(f'Unknown activation: {name}')
+
 class DummyRuntimeStats:
     def start_region(self, *args, **kwargs):
         pass
 
     def end_region(self, *args, **kwargs):
         pass
-
 
 runtime_stats_cuda = DummyRuntimeStats()
 
@@ -52,7 +67,7 @@ class GTLayer(nn.Module):
         self.num_heads = num_heads
         self.layer_norm = layer_norm
         self.batch_norm = batch_norm
-        self.activation = register.act_dict[cfg.gt.act]
+        self.activation = get_activation(cfg.gt.act)
         self.metadata = metadata
         self.return_attention = return_attention
         self.local_gnn_type = local_gnn_type
@@ -197,17 +212,21 @@ class GTLayer(nn.Module):
     def forward(self, batch):
         has_edge_attr = False
         if isinstance(batch, HeteroData):
+            node_types = batch.node_types
+            edge_types = batch.edge_types
             h_dict, edge_index_dict = batch.collect('x'), batch.collect('edge_index')
             if sum(batch.num_edge_features.values()):
                 edge_attr_dict = batch.collect('edge_attr')
                 has_edge_attr = True
         else:
-            h_dict = {'node_type': batch.x}
-            edge_index_dict = {('node_type', 'edge_type', 'node_type'): batch.edge_index}
-            if sum(batch.num_edge_features.values()):
-                edge_attr_dict = {('node_type', 'edge_type', 'node_type'): batch.edge_attr}
-                has_edge_attr = True
-        h_in_dict = h_dict#.copy()
+            node_types = ['node_type']
+            edge_types = [('node_type', 'edge_type', 'node_type')]
+            h_dict = {'node_type': batch.node_feature}
+            edge_index_dict = {edge_types[0]: batch.edge_index}
+            has_edge_attr = hasattr(batch, 'edge_feature') and batch.edge_feature is not None
+            if has_edge_attr:
+                edge_attr_dict = {edge_types[0]: batch.edge_feature}
+        h_in_dict = h_dict
         if has_edge_attr:
             edge_attr_in_dict = edge_attr_dict.copy()
 
@@ -219,12 +238,12 @@ class GTLayer(nn.Module):
             if self.layer_norm or self.batch_norm:
                 h_dict = {
                     node_type: self.norm1_global[node_type](h_dict[node_type])
-                    for node_type in batch.node_types
+                    for node_type in node_types
                 }
                 if has_edge_attr:
                     edge_attr_dict = {
                         edge_type: self.norm1_edge_global["__".join(edge_type)](edge_attr_dict[edge_type])
-                        for edge_type in batch.edge_types
+                        for edge_type in edge_types
                     }
             
 
@@ -277,7 +296,7 @@ class GTLayer(nn.Module):
 
                 # attn_weights = A.detach().cpu()
                 h = h.view(1, -1, D)
-                for idx, node_type in enumerate(batch.node_types):
+                for idx, node_type in enumerate(node_types):
                     out_type = h[:, node_type_tensor == idx, :]
                     h_attn_dict_list[node_type].append(out_type.squeeze())
 
@@ -285,29 +304,40 @@ class GTLayer(nn.Module):
                 # Test if Signed attention is beneficial
                 # st = time.time()
                 H, D = self.num_heads, self.dim_h // self.num_heads
-                homo_data = batch.to_homogeneous()
-                edge_index = homo_data.edge_index
-                node_type_tensor = homo_data.node_type
-                edge_type_tensor = homo_data.edge_type
-                q = torch.empty((homo_data.num_nodes, self.dim_h), device=homo_data.x.device)
-                k = torch.empty((homo_data.num_nodes, self.dim_h), device=homo_data.x.device)
-                v = torch.empty((homo_data.num_nodes, self.dim_h), device=homo_data.x.device)
-                edge_attr = torch.empty((homo_data.num_edges, self.dim_h), device=homo_data.x.device)
-                edge_gate = torch.empty((homo_data.num_edges, self.dim_h), device=homo_data.x.device)
-                for idx, node_type in enumerate(batch.node_types):
+                if isinstance(batch, HeteroData):
+                    homo_data = batch.to_homogeneous()
+                    h = homo_data.x
+                    edge_index = homo_data.edge_index
+                    node_type_tensor = homo_data.node_type
+                    edge_type_tensor = homo_data.edge_type
+                else:
+                    h = batch.node_feature
+                    edge_index = batch.edge_index
+                    node_type_tensor = torch.zeros(
+                        h.size(0), dtype=torch.long, device=h.device
+                    )
+                    edge_type_tensor = torch.zeros(
+                        edge_index.size(1), dtype=torch.long, device=edge_index.device
+                    )
+                q = torch.empty((h.size(0), self.dim_h), device=h.device)
+                k = torch.empty((h.size(0), self.dim_h), device=h.device)
+                v = torch.empty((h.size(0), self.dim_h), device=h.device)
+                edge_attr = torch.empty((edge_index.size(1), self.dim_h), device=h.device)
+                edge_gate = torch.empty((edge_index.size(1), self.dim_h), device=h.device)
+                for idx, node_type in enumerate(node_types):
                     mask = node_type_tensor == idx
                     q[mask] = self.q_lin[node_type](h_dict[node_type])
                     k[mask] = self.k_lin[node_type](h_dict[node_type])
                     v[mask] = self.v_lin[node_type](h_dict[node_type])
-                for idx, edge_type_tuple in enumerate(batch.edge_types):
+                for idx, edge_type_tuple in enumerate(edge_types):
                     edge_type = '__'.join(edge_type_tuple)
                     mask = edge_type_tensor == idx
                     edge_attr[mask] = self.e_lin[edge_type](edge_attr_dict[edge_type_tuple])
                     edge_gate[mask] = self.g_lin[edge_type](edge_attr_dict[edge_type_tuple])
                 src_nodes, dst_nodes = edge_index
                 num_edges = edge_index.shape[1]
-                L = homo_data.x.shape[0]
-                S = homo_data.x.shape[0]
+                L = h.shape[0]
+                S = h.shape[0]
 
                 if has_edge_attr:
                     # src_nodes, dst_nodes = edge_index
@@ -419,13 +449,13 @@ class GTLayer(nn.Module):
 
                 out = out.transpose(0,1).contiguous().view(-1, H * D)
 
-                for idx, node_type in enumerate(batch.node_types):
+                for idx, node_type in enumerate(node_types):
                     mask = node_type_tensor == idx
                     out_type = self.o_lin[node_type](out[mask, :])
                     h_attn_dict_list[node_type].append(out_type.squeeze())
                 if has_edge_attr:
                     edge_attr = edge_attr.transpose(0,1).contiguous().view(-1, H * D)
-                    for idx, edge_type_tuple in enumerate(batch.edge_types):
+                    for idx, edge_type_tuple in enumerate(edge_types):
                         edge_type = '__'.join(edge_type_tuple)
                         mask = edge_type_tensor == idx
                         out_type = self.oe_lin[edge_type](edge_attr[mask, :])
@@ -440,22 +470,22 @@ class GTLayer(nn.Module):
             if cfg.gt.residual == 'Fixed':
                 h_attn_dict = {
                     node_type: h_attn_dict[node_type] + h_in_dict[node_type]
-                    for node_type in batch.node_types
+                    for node_type in node_types
                 }
 
                 if has_edge_attr:
                     edge_attr_dict = {
                         edge_type: edge_attr_dict[edge_type] + edge_attr_in_dict[edge_type]
-                        for edge_type in batch.edge_types
+                        for edge_type in edge_types
                     }
             elif cfg.gt.residual == 'Learn':
                 alpha_dict = {
-                    node_type: self.skip_global[node_type].sigmoid() for node_type in batch.node_types
+                    node_type: self.skip_global[node_type].sigmoid() for node_type in node_types
                 }
                 h_attn_dict = {
                     node_type: alpha_dict[node_type] * h_attn_dict[node_type] + \
                         (1 - alpha_dict[node_type]) * h_in_dict[node_type]
-                    for node_type in batch.node_types
+                    for node_type in node_types
                 }
             elif cfg.gt.residual != 'none':
                 raise ValueError(
@@ -466,46 +496,46 @@ class GTLayer(nn.Module):
             # if self.layer_norm or self.batch_norm:
             #     h_attn_dict = {
             #         node_type: self.norm1_global[node_type](h_attn_dict[node_type])
-            #         for node_type in batch.node_types
+            #         for node_type in node_types
             #     }
             #     if has_edge_attr:
             #         edge_attr_dict = {
             #             edge_type: self.norm1_edge_global["__".join(edge_type)](edge_attr_dict[edge_type])
-            #             for edge_type in batch.edge_types
+            #             for edge_type in edge_types
             #         }
 
             
             # Concat output
             h_out_dict_list = {
-                node_type: h_out_dict_list[node_type] + [h_attn_dict[node_type]] for node_type in batch.node_types
+                node_type: h_out_dict_list[node_type] + [h_attn_dict[node_type]] for node_type in node_types
             }
 
         # Combine global information
         h_dict = {
-            node_type: sum(h_out_dict_list[node_type]) for node_type in batch.node_types
+            node_type: sum(h_out_dict_list[node_type]) for node_type in node_types
         }
         if cfg.gt.ffn != 'none':
             # Pre-normalization
             if self.layer_norm or self.batch_norm:
                 h_dict = {
                     node_type: self.norm2_ffn[node_type](h_dict[node_type])
-                    for node_type in batch.node_types
+                    for node_type in node_types
                 }
             
             if cfg.gt.ffn == 'Type':
                 h_dict = {
                     node_type: h_dict[node_type] + self._ff_block_type(h_dict[node_type], node_type)
-                    for node_type in batch.node_types
+                    for node_type in node_types
                 }
                 if has_edge_attr:
                     edge_attr_dict = {
                         edge_type: edge_attr_dict[edge_type] + self._ff_block_edge_type(edge_attr_dict[edge_type], edge_type)
-                        for edge_type in batch.edge_types
+                        for edge_type in edge_types
                     }
             elif cfg.gt.ffn == 'Single':
                 h_dict = {
                     node_type: h_dict[node_type] + self._ff_block(h_dict[node_type])
-                    for node_type in batch.node_types
+                    for node_type in node_types
                 }
             else:
                 raise ValueError(
@@ -516,28 +546,30 @@ class GTLayer(nn.Module):
             # if self.layer_norm or self.batch_norm:
             #     h_dict = {
             #         node_type: self.norm2_ffn[node_type](h_dict[node_type])
-            #         for node_type in batch.node_types
+            #         for node_type in node_types
             #     }
         
         if cfg.gt.residual == 'Concat':
             h_dict = {
                 node_type: torch.cat((h_in_dict[node_type], h_dict[node_type]), dim=1)
-                for node_type in batch.node_types
+                for node_type in node_types
             }
 
         runtime_stats_cuda.end_region("gt-layer")
 
         if isinstance(batch, HeteroData):
-            for node_type in batch.node_types:
+            for node_type in node_types:
                 batch[node_type].x = h_dict[node_type]
             if has_edge_attr:
-                for edge_type in batch.edge_types:
+                for edge_type in edge_types:
                     batch[edge_type].edge_attr = edge_attr_dict[edge_type]
         else:
-            batch.x = h_dict['node_type']
+            batch.node_feature = h_dict['node_type']
+            if has_edge_attr:
+                batch.edge_feature = edge_attr_dict[('node_type', 'edge_type', 'node_type')]
 
         if self.return_attention:
-            return batch, saved_scores
+            return batch, None
         return batch
     
     def _ff_block_type(self, x, node_type):
