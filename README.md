@@ -1,7 +1,7 @@
 # ROLANDforFraud
 
 Dataset (put in data folder): https://www.kaggle.com/datasets/xblock/ethereum-phishing-transaction-network
-Command (in PyCharm, first download all the required packages): python run/main.py --cfg run/eptn_gat.yaml 
+Command (in PyCharm, first download all the required packages): python run/main.py --cfg run/eptn_gat.yaml or python run/main.py --cfg run/eptn_fraudgt.yaml 
 
 # ROLAND: Graph Learning Framework for Dynamic Graphs
 This repository contains implementations for the ROLAND paper. This repository is a version of [GraphGym](https://github.com/snap-stanford/GraphGym) modified for the ROLAND paper to include our new model implementation.

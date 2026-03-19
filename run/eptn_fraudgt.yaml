@@ -44,9 +44,9 @@ gt:
   dim_hidden: 32
   layers: 2
   layers_pre_gt: 0
-  layer_type: TorchTransformer
-  batch_norm: False
-  layer_norm: True
+  layer_type: SparseNodeTransformer
+  batch_norm: True
+  layer_norm: False
   l2_norm: False
   act: prelu
   input_dropout: 0.0

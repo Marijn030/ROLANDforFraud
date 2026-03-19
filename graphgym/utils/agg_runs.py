@@ -67,7 +67,7 @@ def rm_keys(dict, keys):
 
 
 # single experiments
-def agg_runs(dir, metric_best='auto'):
+def agg_runs(dir, metric_best='pr_auc'):
     results = {'train': None, 'val': None, 'test': None}
     results_best = {'train': None, 'val': None, 'test': None}
     for seed in os.listdir(dir):
