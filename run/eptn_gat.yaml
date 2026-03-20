@@ -38,7 +38,7 @@ model:
 
 gnn:
   layers_pre_mp: 0
-  layers_mp: 2
+  layers_mp: 1
   layers_post_mp: 1
   dim_inner: 16
   layer_type: gatconv
