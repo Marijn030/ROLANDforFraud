@@ -29,7 +29,7 @@ train:
   mode: standard
   auto_resume: False
   early_stopping: True
-  patience: 16
+  patience: 10
 
 model:
   type: gnn
@@ -43,11 +43,11 @@ gnn:
   dim_inner: 16
   layer_type: gatconv
   stage_type: stack
-  batchnorm: True
+  batchnorm: False
   act: prelu
-  dropout: 0.2
+  dropout: 0.1
   agg: add
-  att_heads: 4
+  att_heads: 2
   normalize_adj: False
 
 optim:
