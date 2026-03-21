@@ -1,4 +1,6 @@
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 os.environ['MPLCONFIGDIR'] = "/tmp"
 import random
 import numpy as np
@@ -145,7 +147,8 @@ if __name__ == '__main__':
         # Set Pytorch environment
         torch.set_num_threads(cfg.num_threads)
         out_dir_parent = cfg.out_dir
-        cfg.seed = i + 1
+        base_seed = cfg.seed
+        cfg.seed = base_seed + i
         random.seed(cfg.seed)
         np.random.seed(cfg.seed)
         torch.manual_seed(cfg.seed)

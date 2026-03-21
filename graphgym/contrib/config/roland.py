@@ -75,6 +75,9 @@ def set_cfg_roland(cfg):
 
     cfg.train.stop_live_update_after = 99999999
 
+    cfg.train.early_stopping = False
+    cfg.train.patience = 10
+
     # How to handle node features in AS dataset.
     # available: ['one', 'one_hot_id', 'one_hot_degree_global', 'one_hot_degree_local']
     cfg.dataset.AS_node_feature = 'one'

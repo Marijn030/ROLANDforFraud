@@ -96,13 +96,20 @@ class Logger(object):
     # task properties
     def classification_binary(self):
         true, pred_score = torch.cat(self._true), torch.cat(self._pred)
+
+        true = true.view(-1)
+        pred_score = pred_score.view(-1)
+
         pred_int = self._get_pred_int(pred_score)
-        return {'accuracy': round(accuracy_score(true, pred_int), cfg.round),
-                'precision': round(precision_score(true, pred_int), cfg.round),
-                'recall': round(recall_score(true, pred_int), cfg.round),
-                'f1': round(f1_score(true, pred_int), cfg.round),
-                'auc': round(roc_auc_score(true, pred_score), cfg.round),
-                }
+
+        return {
+            'accuracy': round(accuracy_score(true, pred_int), cfg.round),
+            'precision': round(precision_score(true, pred_int, zero_division=0), cfg.round),
+            'recall': round(recall_score(true, pred_int, zero_division=0), cfg.round),
+            'f1': round(f1_score(true, pred_int, zero_division=0), cfg.round),
+            'roc_auc': round(roc_auc_score(true, pred_score), cfg.round),
+            'pr_auc': round(average_precision_score(true, pred_score), cfg.round),
+        }
 
     def classification_multi(self):
         true, pred_score = torch.cat(self._true), torch.cat(self._pred)

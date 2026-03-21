@@ -393,7 +393,8 @@ def assert_cfg(cfg):
     if cfg.gnn.layers_post_mp < 1:
         cfg.gnn.layers_post_mp = 1
         logging.warning('Layers after message passing should be >=1')
-
+    if hasattr(cfg, 'gt') and cfg.gt.head == 'default':
+        cfg.gt.head = cfg.dataset.task
 
 def dump_cfg(cfg):
     """Dumps the config to the output directory."""
