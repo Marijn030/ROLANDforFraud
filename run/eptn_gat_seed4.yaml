@@ -1,6 +1,7 @@
 remark: eptn_gat
 out_dir: results
 device: auto
+seed: 4
 
 dataset:
   format: eptn

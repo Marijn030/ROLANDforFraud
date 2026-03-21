@@ -45,14 +45,14 @@ gt:
   layers: 1
   layers_pre_gt: 0
   layer_type: SparseNodeTransformer
-  batch_norm: False
+  batch_norm: True
   layer_norm: False
   l2_norm: False
   act: prelu
   input_dropout: 0.0
-  dropout: 0.1
+  dropout: 0.2
   attn_dropout: 0.1
-  attn_heads: 2
+  attn_heads: 1
   attn_mask: Edge
   hops: 1
   edge_weight: False

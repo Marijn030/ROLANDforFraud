@@ -1,6 +1,7 @@
-remark: eptn_gat
+remark: eptn_fraudgt
 out_dir: results
 device: auto
+seed: 2
 
 dataset:
   format: eptn
@@ -32,23 +33,34 @@ train:
   patience: 10
 
 model:
-  type: gnn
+  type: GTModel
   loss_fun: cross_entropy
   graph_pooling: add
 
 gnn:
-  layers_pre_mp: 1
-  layers_mp: 2
-  layers_post_mp: 2
-  dim_inner: 32
-  layer_type: gatconv
-  stage_type: stack
-  batchnorm: True
+  dropout: 0.0
+
+gt:
+  head: default
+  dim_hidden: 16
+  layers: 1
+  layers_pre_gt: 0
+  layer_type: SparseNodeTransformer
+  batch_norm: True
+  layer_norm: False
+  l2_norm: False
   act: prelu
+  input_dropout: 0.0
   dropout: 0.2
-  agg: add
-  att_heads: 4
-  normalize_adj: False
+  attn_dropout: 0.1
+  attn_heads: 1
+  attn_mask: Edge
+  hops: 1
+  edge_weight: False
+  residual: Fixed
+  ffn: Single
+  virtual_nodes: 0
+  jumping_knowledge: False
 
 optim:
   optimizer: adam

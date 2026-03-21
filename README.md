@@ -1,7 +1,39 @@
 # ROLANDforFraud
 
-Dataset (put in data folder): https://www.kaggle.com/datasets/xblock/ethereum-phishing-transaction-network
-Command (in PyCharm, first download all the required packages): python run/main.py --cfg run/eptn_gat.yaml or python run/main.py --cfg run/eptn_fraudgt.yaml 
+## Dataset
+Download the dataset and place it in the `data/` folder:
+
+- https://www.kaggle.com/datasets/xblock/ethereum-phishing-transaction-network
+
+## Setup
+Before running the project, make sure all required Python packages are installed (e.g., via PyCharm or your preferred environment).
+
+## Run Experiments
+
+### Default Configurations
+```bash
+python run/main.py --cfg run/eptn_gat.yaml
+python run/main.py --cfg run/eptn_fraudgt.yaml  
+```
+
+### Run with Different Seeds
+#### GAT Seeds
+```bash
+python run/main.py --cfg run/eptn_gat_seed1.yaml
+python run/main.py --cfg run/eptn_gat_seed2.yaml
+python run/main.py --cfg run/eptn_gat_seed3.yaml
+python run/main.py --cfg run/eptn_gat_seed4.yaml
+python run/main.py --cfg run/eptn_gat_seed5.yaml
+```
+
+#### FraudGT Seeds
+```bash
+python run/main.py --cfg run/eptn_fraudgt_seed1.yaml
+python run/main.py --cfg run/eptn_fraudgt_seed2.yaml
+python run/main.py --cfg run/eptn_fraudgt_seed3.yaml
+python run/main.py --cfg run/eptn_fraudgt_seed4.yaml
+python run/main.py --cfg run/eptn_fraudgt_seed5.yaml
+```
 
 # ROLAND: Graph Learning Framework for Dynamic Graphs
 This repository contains implementations for the ROLAND paper. This repository is a version of [GraphGym](https://github.com/snap-stanford/GraphGym) modified for the ROLAND paper to include our new model implementation.
