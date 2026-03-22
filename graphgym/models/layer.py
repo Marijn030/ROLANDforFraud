@@ -633,6 +633,28 @@ class GraphConvGRUUpdater(nn.Module):
         return H_out
 
 
+class BatchNorm1dNode(nn.Module):
+    '''General wrapper for layers'''
+    def __init__(self, dim_in):
+        super(BatchNorm1dNode, self).__init__()
+        self.bn = nn.BatchNorm1d(dim_in, eps=cfg.bn.eps, momentum=cfg.bn.mom)
+
+    def forward(self, batch):
+        batch.x = self.bn(batch.x)
+        return batch
+
+
+class BatchNorm1dEdge(nn.Module):
+    '''General wrapper for layers'''
+    def __init__(self, dim_in):
+        super(BatchNorm1dEdge, self).__init__()
+        self.bn = nn.BatchNorm1d(dim_in, eps=cfg.bn.eps, momentum=cfg.bn.mom)
+
+    def forward(self, batch):
+        batch.edge_attr = self.bn(batch.edge_attr)
+        return batch
+
+
 layer_dict = {
     'linear': Linear,
     'mlp': MLP,
