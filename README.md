@@ -1,7 +1,7 @@
 # ROLANDforFraud
 
 ## Dataset
-Download the dataset and place it in the `data/` folder:
+Download the dataset and place it in the `data/` folder after unzipping it, the name should then be eptn.pkl:
 
 - https://www.kaggle.com/datasets/xblock/ethereum-phishing-transaction-network
 
